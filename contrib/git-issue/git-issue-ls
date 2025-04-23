@@ -1,0 +1,187 @@
+#!/bin/sh
+#
+# git-issue-ls - List issues in the repository
+#
+
+SUBDIRECTORY_OK=Yes
+. "$(git --exec-path)/git-sh-setup"
+
+usage() {
+    cat <<EOF
+usage: git issue-ls [--state <state>] [--label <label>] [--assignee <assignee>]
+
+    --state <state>          Filter by state (e.g., open, closed)
+    --label <label>          Filter by label
+    --assignee <assignee>    Filter by assignee
+    --format <format>        Output format (default: short)
+EOF
+    exit 1
+}
+
+# Parse command line arguments
+filter_state=""
+filter_label=""
+filter_assignee=""
+format="short"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --state)
+            shift
+            filter_state="$1"
+            ;;
+        --label)
+            shift
+            filter_label="$1"
+            ;;
+        --assignee)
+            shift
+            filter_assignee="$1"
+            ;;
+        --format)
+            shift
+            format="$1"
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            usage
+            ;;
+    esac
+    shift
+done
+
+# Check if any issues exist
+has_issues() {
+    git for-each-ref refs/issues/ | grep -v "refs/issues/next-id" >/dev/null 2>&1
+}
+
+if ! has_issues; then
+    echo "No issues found"
+    exit 0
+fi
+
+# List all issue refs
+list_issues() {
+    git for-each-ref --format="%(refname)" refs/issues/ | grep -v "refs/issues/next-id" | sort
+}
+
+# Extract issue ID from ref
+extract_id() {
+    echo "$1" | sed 's|refs/issues/||'
+}
+
+# Get issue title
+get_issue_title() {
+    git log --format="%B" "$1" | grep "^Title:" | head -n 1 | sed 's/^Title:[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+# Get issue state
+get_issue_state() {
+    git log -1 --format="%B" "$1" | grep "^State:" | sed 's/^State:[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+# Get issue labels
+get_issue_labels() {
+    git log -1 --format="%B" "$1" | grep "^Labels:" | sed 's/^Labels:[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+# Get issue assignee
+get_issue_assignee() {
+    git log -1 --format="%B" "$1" | grep "^Assignee:" | sed 's/^Assignee:[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+# Check if issue matches filters
+issue_matches_filters() {
+    local ref="$1"
+
+    # If no filters are specified, show all issues
+    if [ -z "$filter_state" ] && [ -z "$filter_label" ] && [ -z "$filter_assignee" ]; then
+        return 0
+    fi
+
+    local issue_state=$(get_issue_state "$ref")
+    local issue_labels=$(get_issue_labels "$ref")
+    local issue_assignee=$(get_issue_assignee "$ref")
+    local matches=0
+    local filters=0
+
+    # Count active filters and matches
+    if [ -n "$filter_state" ]; then
+        filters=$((filters + 1))
+        [ "$issue_state" = "$filter_state" ] && matches=$((matches + 1))
+    fi
+
+    if [ -n "$filter_label" ]; then
+        filters=$((filters + 1))
+        if printf "%s\n" "$issue_labels" | grep -w -q "$filter_label"; then
+            matches=$((matches + 1))
+        fi
+    fi
+
+    if [ -n "$filter_assignee" ]; then
+        filters=$((filters + 1))
+        [ "$issue_assignee" = "$filter_assignee" ] && matches=$((matches + 1))
+    fi
+
+    # All specified filters must match
+    [ "$matches" -eq "$filters" ]
+}
+
+# Print issue in short format
+print_issue_short() {
+    local ref="$1"
+    local id=$(extract_id "$ref")
+    local title=$(get_issue_title "$ref")
+    local state=$(get_issue_state "$ref")
+    
+    printf "#%04d [%s] %s\n" "$id" "$state" "$title"
+}
+
+# Print issue in long format
+print_issue_long() {
+    local ref="$1"
+    local id=$(extract_id "$ref")
+    local title=$(get_issue_title "$ref")
+    local state=$(get_issue_state "$ref")
+    local labels=$(get_issue_labels "$ref")
+    local assignee=$(get_issue_assignee "$ref")
+    
+    printf "#%04d [%s] %s\n" "$id" "$state" "$title"
+    
+    if [ -n "$labels" ]; then
+        printf "  Labels: %s\n" "$labels"
+    fi
+    
+    if [ -n "$assignee" ]; then
+        printf "  Assignee: %s\n" "$assignee"
+    fi
+    
+    printf "\n"
+}
+
+# Main
+found_issues=0
+
+for ref in $(list_issues); do
+    echo "DEBUG: Processing ref $ref" >&2
+    issue_state=$(get_issue_state "$ref")
+    issue_title=$(get_issue_title "$ref")
+    issue_labels=$(get_issue_labels "$ref")
+    issue_assignee=$(get_issue_assignee "$ref")
+    echo "DEBUG: state=$issue_state, labels=$issue_labels, assignee=$issue_assignee" >&2
+    
+    if issue_matches_filters "$ref"; then
+        found_issues=1
+        if [ "$format" = "short" ]; then
+            print_issue_short "$ref"
+        else
+            print_issue_long "$ref"
+        fi
+    fi
+done
+
+if [ "$found_issues" -eq 0 ]; then
+    echo "No matching issues found"
+fi
