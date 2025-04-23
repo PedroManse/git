@@ -1,0 +1,100 @@
+#!/bin/sh
+#
+# git-issue-show - Show details of an issue and its comments
+#
+
+SUBDIRECTORY_OK=Yes
+. "$(git --exec-path)/git-sh-setup"
+
+usage() {
+    cat <<EOF
+usage: git issue-show <issue-id>
+
+    <issue-id>               The ID of the issue to show
+EOF
+    exit 1
+}
+
+# Parse command line arguments
+if [ $# -lt 1 ]; then
+    usage
+fi
+
+issue_id="$1"
+shift
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        *)
+            usage
+            ;;
+    esac
+    shift
+done
+
+# Format the issue ID with leading zeros
+format_issue_id() {
+    printf "%04d" "$1"
+}
+
+# Check if the issue exists
+formatted_id=$(format_issue_id "$issue_id")
+issue_ref="refs/issues/$formatted_id"
+
+if ! git rev-parse --verify "$issue_ref" >/dev/null 2>&1; then
+    echo "Error: Issue $issue_id does not exist" >&2
+    exit 1
+fi
+
+# Get the current HEAD of the issue
+issue_head=$(git rev-parse "$issue_ref")
+
+# Get issue details from the root commit
+root_commit=$(git rev-list --max-parents=0 "$issue_ref")
+title=$(git log -1 --format="%B" "$root_commit" | grep "^Title:" | sed 's/^Title: //')
+state=$(git log -1 --format="%B" "$issue_head" | grep "^State:" | sed 's/^State: //')
+labels=$(git log -1 --format="%B" "$root_commit" | grep "^Labels:" | sed 's/^Labels: //')
+assignee=$(git log -1 --format="%B" "$root_commit" | grep "^Assignee:" | sed 's/^Assignee: //')
+code_sha=$(git log -1 --format="%B" "$root_commit" | grep "^Code-SHA:" | sed 's/^Code-SHA: //')
+provider_id=$(git log -1 --format="%B" "$root_commit" | grep "^Provider-ID:" | sed 's/^Provider-ID: //')
+
+# Extract the description (everything after the trailers)
+description=$(git log -1 --format="%B" "$root_commit" | awk 'BEGIN {p=0} /^$/ {p=1; next} p {print}')
+
+# Print issue header
+printf "Issue #%s [%s]: %s\n" "$issue_id" "$state" "$title"
+printf "===============================================\n"
+
+if [ -n "$labels" ]; then
+    printf "Labels: %s\n" "$labels"
+fi
+
+if [ -n "$assignee" ]; then
+    printf "Assignee: %s\n" "$assignee"
+fi
+
+if [ -n "$code_sha" ]; then
+    printf "Code-SHA: %s\n" "$code_sha"
+fi
+
+if [ -n "$provider_id" ]; then
+    printf "Provider-ID: %s\n" "$provider_id"
+fi
+
+printf "\n%s\n\n" "$description"
+
+# Print comments and state changes
+printf "Comments and Updates:\n"
+printf "===============================================\n"
+
+# Get all commits except the root commit
+git log --format="%H %an %ad%n%B%n---" --date=short "$root_commit..$issue_head" | while IFS= read -r line; do
+    if [ "$line" = "---" ]; then
+        printf "\n"
+    else
+        printf "%s\n" "$line"
+    fi
+done
