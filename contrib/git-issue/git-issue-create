@@ -1,0 +1,152 @@
+#!/bin/sh
+#
+# git-issue-create - Create a new issue in the Git repository
+#
+
+SUBDIRECTORY_OK=Yes
+. "$(git --exec-path)/git-sh-setup"
+
+usage() {
+    cat <<EOF
+usage: git issue-create [-m <message>] [--title <title>] [--code-sha <sha>] [--state <state>] [--labels <labels>] [--assignee <assignee>]
+
+    -m, --message <message>    Issue description
+    --title <title>            Issue title
+    --code-sha <sha>           SHA of the commit where a bug was reproduced
+    --state <state>            Issue state (default: open)
+    --labels <labels>          Comma-separated list of labels
+    --assignee <assignee>      Email or username of the assignee
+EOF
+    exit 1
+}
+
+# Parse command line arguments
+message=""
+title=""
+code_sha=""
+state="open"
+labels=""
+assignee=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -m|--message)
+            shift
+            message="$1"
+            ;;
+        --title)
+            shift
+            title="$1"
+            ;;
+        --code-sha)
+            shift
+            code_sha="$1"
+            ;;
+        --state)
+            shift
+            state="$1"
+            ;;
+        --labels)
+            shift
+            labels="$1"
+            ;;
+        --assignee)
+            shift
+            assignee="$1"
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            usage
+            ;;
+    esac
+    shift
+done
+
+# Validate required fields
+if [ -z "$title" ] && [ -z "$message" ]; then
+    echo "Error: Either title or message must be specified" >&2
+    exit 1
+fi
+
+# If title is not provided, use the first line of the message
+if [ -z "$title" ] && [ -n "$message" ]; then
+    title=$(echo "$message" | head -n 1)
+fi
+
+# Get the next issue ID
+get_next_issue_id() {
+    if [ -f .git/refs/issues/next-id ]; then
+        echo "DEBUG: Reading next-id file" >&2
+        current_id=$(cat .git/refs/issues/next-id)
+        echo "DEBUG: Current ID is '$current_id'" >&2
+        if ! echo "$current_id" | grep -q '^[0-9][0-9]*$'; then
+            echo "Error: Invalid next-id format" >&2
+            return 1
+        fi
+        next_id=$current_id
+    else
+        echo "DEBUG: No next-id file, starting at 1" >&2
+        next_id=1
+        # Create the refs/issues directory if it doesn't exist
+        mkdir -p .git/refs/issues 2>/dev/null || true
+    fi
+    echo "DEBUG: Returning next_id=$next_id" >&2
+    printf "%s" "$next_id"
+}
+
+# Update the next issue ID
+update_next_issue_id() {
+    echo "DEBUG: Updating next-id to $1" >&2
+    printf "%s" "$1" > .git/refs/issues/next-id
+    echo "DEBUG: After update, next-id content:" >&2
+    cat .git/refs/issues/next-id >&2
+}
+
+# Format the issue ID with leading zeros
+format_issue_id() {
+    printf "%04d" "$1"
+}
+
+# Create the issue
+next_id=$(get_next_issue_id)
+formatted_id=$(format_issue_id $next_id)
+issue_ref="refs/issues/$formatted_id"
+
+# Build the commit message
+commit_message="Title: $title
+State: $state"
+
+if [ -n "$labels" ]; then
+    commit_message="$commit_message
+Labels: $labels"
+fi
+
+if [ -n "$assignee" ]; then
+    commit_message="$commit_message
+Assignee: $assignee"
+fi
+
+if [ -n "$code_sha" ]; then
+    commit_message="$commit_message
+Code-SHA: $code_sha"
+fi
+
+commit_message="$commit_message
+
+$message"
+
+# Create an empty tree
+tree_hash=$(git mktree </dev/null)
+
+# Create the commit
+commit_hash=$(echo "$commit_message" | git commit-tree "$tree_hash")
+
+# Update the issue ref
+git update-ref "$issue_ref" "$commit_hash"
+
+# Update the next issue ID
+update_next_issue_id $((next_id + 1))
+
+echo "Created issue $next_id"
