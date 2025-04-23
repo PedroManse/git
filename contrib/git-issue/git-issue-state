@@ -1,0 +1,111 @@
+#!/bin/sh
+#
+# git-issue-state - Change the state of an existing issue
+#
+
+SUBDIRECTORY_OK=Yes
+. "$(git --exec-path)/git-sh-setup"
+
+usage() {
+    cat <<EOF
+usage: git issue-state <issue-id> --state <state> [--release <tag>] [--fixed-by <sha>] [-m <message>]
+
+    <issue-id>               The ID of the issue to update
+    --state <state>          New state (e.g., open, closed)
+    --release <tag>          Optional release tag where the issue is fixed
+    --fixed-by <sha>         Optional commit SHA that fixes the issue
+    -m, --message <message>  Optional comment message
+EOF
+    exit 1
+}
+
+# Parse command line arguments
+if [ $# -lt 1 ]; then
+    usage
+fi
+
+issue_id="$1"
+shift
+
+state=""
+release=""
+fixed_by=""
+message=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --state)
+            shift
+            state="$1"
+            ;;
+        --release)
+            shift
+            release="$1"
+            ;;
+        --fixed-by)
+            shift
+            fixed_by="$1"
+            ;;
+        -m|--message)
+            shift
+            message="$1"
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            usage
+            ;;
+    esac
+    shift
+done
+
+# Validate required fields
+if [ -z "$state" ]; then
+    echo "Error: State must be specified" >&2
+    exit 1
+fi
+
+# Format the issue ID with leading zeros
+format_issue_id() {
+    printf "%04d" "$1"
+}
+
+# Check if the issue exists
+formatted_id=$(format_issue_id "$issue_id")
+issue_ref="refs/issues/$formatted_id"
+
+if ! git rev-parse --verify "$issue_ref" >/dev/null 2>&1; then
+    echo "Error: Issue $issue_id does not exist" >&2
+    exit 1
+fi
+
+# Get the current HEAD of the issue
+issue_head=$(git rev-parse "$issue_ref")
+
+# Build the commit message
+commit_message="State: $state"
+
+if [ -n "$release" ]; then
+    commit_message="$commit_message
+Release: $release"
+fi
+
+if [ -n "$fixed_by" ]; then
+    commit_message="$commit_message
+Fixed-By: $fixed_by"
+fi
+
+if [ -n "$message" ]; then
+    commit_message="$commit_message
+
+$message"
+fi
+
+# Create the commit
+commit_hash=$(echo "$commit_message" | git commit-tree -p "$issue_head" "$(git mktree </dev/null)")
+
+# Update the issue ref
+git update-ref "$issue_ref" "$commit_hash"
+
+echo "Updated state of issue $issue_id to '$state'"
