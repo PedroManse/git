@@ -1,0 +1,170 @@
+= Native Git Issues
+:toc:
+:toclevels: 3
+
+== Overview
+
+This document describes the design and implementation of native Git issues with bridges to external providers. The feature enables Git to track issues directly within the repository, using Git's own data structures and mechanisms, while also providing bidirectional integration with external issue tracking systems.
+
+== Philosophy
+
+The design of native Git issues follows several key principles:
+
+* *Small core, large ecosystem*: Keep the core implementation minimal (<2 kLOC) while enabling the community to innovate with bridges and UIs.
+* *Data first*: Treat issues and comments as first-class citizens, making them immutable and auditable via Git's commit model.
+* *Absolute decentralization*: Avoid dependency on any central server; each clone contains the complete issue history.
+* *Reuse of infrastructure*: Leverage existing Git components like packfiles, reflogs, hooks, and merge drivers.
+* *Incremental evolution*: Start with contrib and lightweight prototypes, iterate via RFCs, and only move to builtin when mature.
+* *Consistent UX*: Extend Git's familiar interface (commits, refs, for-each-ref) to the issue domain.
+
+== Architecture
+
+=== Refs and Namespaces
+
+Native Git issues use a dedicated namespace within Git's reference system:
+
+* `refs/issues/XXXX`: Branches for individual issues (XXXX = zero-padded issue ID)
+* `refs/issues/next-id`: Atomic counter for the next available issue ID
+
+This approach provides several benefits:
+
+* *Clear organization*: Separates code, versions, and issues without mixing objects
+* *Dedicated operations*: Plumbing commands can focus on `refs/issues/*` using `for-each-ref`
+* *Infrastructure reuse*: Issues benefit from Git's existing branch, reflog, and GC mechanisms
+
+=== Data Model
+
+==== Issue Root Commit
+
+The root commit of an issue branch contains:
+
+* *Branch*: `refs/issues/XXXX` (XXXX = zero-padded issue ID)
+* *Content*: A normal commit with trailers:
+  ** `Title:` string
+  ** `State:` one of `open|closed|...` (default `open`)
+  ** `Labels:` comma-separated values
+  ** `Assignee:` email or username
+  ** `Code-SHA:` SHA of the commit where a bug was reproduced
+  ** `Provider-ID:` optional, format `<provider>:<remote-id>`
+  ** Markdown body after `--`
+
+==== Child Commits (Comments and State Changes)
+
+* *Comment*: Minimal trailer; parent=previous hash; Markdown body
+* *State Change*: `State:` trailer, optional `Release:` and `Fixed-By:` trailers
+* *Provider-Comment-ID*: For comments synchronized from remote providers
+
+==== Next ID Reference
+
+* `refs/issues/next-id` points to the next available ID (decimal), maintained atomically
+
+=== Plumbing Commands
+
+The following low-level commands will be implemented in C under `contrib/` and later migrated to `builtin/`:
+
+* `git issue-create`: Creates a root commit in the next available ID
+* `git issue-comment`: Creates a comment commit in the issue thread
+* `git issue-state`: Creates a state-change commit, adds trailers
+* `git issue-ls`: Lists issues via `for-each-ref`, filtering by trailers
+* `git issue-show`: Displays the complete thread in descending order
+
+=== Merge and Conflict Resolution
+
+Issues are treated as branches, with a custom merge driver:
+
+* `State:` uses last-writer-wins (`closed` > `open`)
+* `Labels:` uses union of values
+* `Title:` uses manual conflict markers
+* Comments: uses normal merge
+
+=== Bridges / Remote Helpers
+
+==== Discovery
+
+Remote helpers are discovered via the remote URL configuration:
+
+* `github.com` → `git-issue-remote-github`
+* `gitlab.com` → `git-issue-remote-gitlab`
+* Fallback: push/pull refs without helper
+
+==== Protocol
+
+The bridge protocol uses text pkt-line, similar to `git remote-helper`:
+
+1. `capabilities` → response: `list, get, put, delete`
+2. `list` → lists `<provider-id> sha:<local-id> state:...`
+3. `get <pid>` → returns complete issue JSON
+4. `put sha:<local-id>` → creates/updates remote; returns `ok <provider-id>`
+5. `delete <pid>` → deletes remote
+
+==== Field Mapping
+
+| Trailer local         | Field remote                    |
+|-----------------------|---------------------------------|
+| `Title:`              | `title`                         |
+| Markdown body         | `body`                          |
+| `State:`              | `state`                         |
+| `Labels:`             | `labels[]`                      |
+| `Assignee:`           | `assignee.login`                |
+| `Provider-ID:`        | ID of the issue in the remote   |
+| `Provider-Comment-ID:`| ID of the comment in the remote |
+
+=== Synchronization Flow
+
+1. `git issues sync` → detects helper and URL
+2. Pull: helper `list` → creates new local commits; `get` for details
+3. Push: detects commits without `Provider-ID`; `put` and generates child commit with trailer
+4. Thread updates: conflicts resolved via merge driver
+
+=== Integration with Versioning
+
+* `Code-SHA` trailer in the root commit captures context
+* `Fixes-Issue:` trailer in code commits
+* `git issue-state --release <tag>` adds `Release:` trailer
+
+== Implementation Plan
+
+=== Phase 1: Proof of Concept
+
+* Create detailed technical specification in `Documentation/technical/native-issues.adoc`
+* Implement basic plumbing commands in `contrib/git-issue/`
+* Create simple bridge prototype in `contrib/issue-remote/`
+* Develop basic tests in `t/90xx-issue-*.sh`
+
+=== Phase 2: RFC Submission
+
+* Prepare RFC cover letter explaining the feature
+* Include documentation and minimal implementation
+* Submit to `git@vger.kernel.org`
+
+=== Phase 3: Community Iteration
+
+* Monitor mailing list for feedback
+* Respond to community comments
+* Refine implementation based on feedback
+* Update documentation and tests
+
+=== Phase 4: Core Integration
+
+* Move code from `contrib/` to `builtin/`
+* Implement merge driver for issue conflicts
+* Finalize documentation and tests
+* Submit final patch series
+
+== Security Considerations
+
+* *Trailer Validation*: Escape lines with `--` to prevent injection
+* *Parser Safety*: Carefully review C code for buffer overflows
+* *Access Control*: Normal push permissions control issue editing
+
+== Performance Considerations
+
+* *Scalability*: Test with repositories containing thousands of issues
+* *Sync Efficiency*: Optimize bridge protocol for minimal data transfer
+* *Storage*: Leverage Git's packfile compression for efficient storage
+
+== Future Extensions
+
+* *Web UI*: Community-developed web interfaces for issue management
+* *Additional Bridges*: Support for more issue tracking systems
+* *Advanced Workflows*: Custom hooks for automation and integration
