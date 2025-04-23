@@ -1,0 +1,77 @@
+#!/bin/sh
+#
+# git-issue-comment - Add a comment to an existing issue
+#
+
+SUBDIRECTORY_OK=Yes
+. "$(git --exec-path)/git-sh-setup"
+
+usage() {
+    cat <<EOF
+usage: git issue-comment <issue-id> -m <message>
+
+    <issue-id>               The ID of the issue to comment on
+    -m, --message <message>  Comment message
+EOF
+    exit 1
+}
+
+# Parse command line arguments
+if [ $# -lt 1 ]; then
+    usage
+fi
+
+issue_id="$1"
+shift
+
+message=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -m|--message)
+            shift
+            message="$1"
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            usage
+            ;;
+    esac
+    shift
+done
+
+# Validate required fields
+if [ -z "$message" ]; then
+    echo "Error: Message must be specified" >&2
+    exit 1
+fi
+
+# Format the issue ID with leading zeros
+format_issue_id() {
+    printf "%04d" "$1"
+}
+
+# Check if the issue exists
+formatted_id=$(format_issue_id "$issue_id")
+issue_ref="refs/issues/$formatted_id"
+
+if ! git rev-parse --verify "$issue_ref" >/dev/null 2>&1; then
+    echo "Error: Issue $issue_id does not exist" >&2
+    exit 1
+fi
+
+# Get the current HEAD of the issue
+issue_head=$(git rev-parse "$issue_ref")
+
+# Build the commit message
+commit_message="$message"
+
+# Create the commit
+commit_hash=$(echo "$commit_message" | git commit-tree -p "$issue_head" "$(git mktree </dev/null)")
+
+# Update the issue ref
+git update-ref "$issue_ref" "$commit_hash"
+
+echo "Added comment to issue $issue_id"
