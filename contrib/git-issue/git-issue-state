@@ -19,7 +19,13 @@ EOF
     exit 1
 }
 
-# Parse command line arguments
+# Prints arguments to stderr if GIT_TRACE=1
+debug() {
+    if test "$GIT_TRACE" = "1"; then
+        echo "trace: git-issue-state: $*" >&2
+    fi
+}
+
 if [ $# -lt 1 ]; then
     usage
 fi
@@ -62,7 +68,7 @@ done
 
 # Validate required fields
 if [ -z "$state" ]; then
-    echo "Error: State must be specified" >&2
+    debug "Error: State must be specified"
     exit 1
 fi
 
@@ -76,7 +82,7 @@ formatted_id=$(format_issue_id "$issue_id")
 issue_ref="refs/issues/$formatted_id"
 
 if ! git rev-parse --verify "$issue_ref" >/dev/null 2>&1; then
-    echo "Error: Issue $issue_id does not exist" >&2
+    debug "Error: Issue $issue_id does not exist"
     exit 1
 fi
 

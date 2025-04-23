@@ -18,7 +18,13 @@ EOF
     exit 1
 }
 
-# Parse command line arguments
+# Prints arguments to stderr if GIT_TRACE=1
+debug() {
+    if test "$GIT_TRACE" = "1"; then
+        echo "trace: git-issue-ls: $*" >&2
+    fi
+}
+
 filter_state=""
 filter_label=""
 filter_assignee=""
@@ -165,12 +171,12 @@ print_issue_long() {
 found_issues=0
 
 for ref in $(list_issues); do
-    echo "DEBUG: Processing ref $ref" >&2
+    debug "Processing ref $ref"
     issue_state=$(get_issue_state "$ref")
     issue_title=$(get_issue_title "$ref")
     issue_labels=$(get_issue_labels "$ref")
     issue_assignee=$(get_issue_assignee "$ref")
-    echo "DEBUG: state=$issue_state, labels=$issue_labels, assignee=$issue_assignee" >&2
+    debug "state=$issue_state, labels=$issue_labels, assignee=$issue_assignee"
     
     if issue_matches_filters "$ref"; then
         found_issues=1

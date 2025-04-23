@@ -20,7 +20,13 @@ EOF
     exit 1
 }
 
-# Parse command line arguments
+# Prints arguments to stderr if GIT_TRACE=1
+debug() {
+    if test "$GIT_TRACE" = "1"; then
+        echo "trace: git-issue-create: $*" >&2
+    fi
+}
+
 message=""
 title=""
 code_sha=""
@@ -78,29 +84,29 @@ fi
 # Get the next issue ID
 get_next_issue_id() {
     if [ -f .git/refs/issues/next-id ]; then
-        echo "DEBUG: Reading next-id file" >&2
+        debug "Reading next-id file"
         current_id=$(cat .git/refs/issues/next-id)
-        echo "DEBUG: Current ID is '$current_id'" >&2
+        debug "Current ID is '$current_id'"
         if ! echo "$current_id" | grep -q '^[0-9][0-9]*$'; then
             echo "Error: Invalid next-id format" >&2
             return 1
         fi
         next_id=$current_id
     else
-        echo "DEBUG: No next-id file, starting at 1" >&2
+        debug "No next-id file, starting at 1"
         next_id=1
         # Create the refs/issues directory if it doesn't exist
         mkdir -p .git/refs/issues 2>/dev/null || true
     fi
-    echo "DEBUG: Returning next_id=$next_id" >&2
+    debug "Returning next_id=$next_id"
     printf "%s" "$next_id"
 }
 
 # Update the next issue ID
 update_next_issue_id() {
-    echo "DEBUG: Updating next-id to $1" >&2
+    debug "Updating next-id to $1"
     printf "%s" "$1" > .git/refs/issues/next-id
-    echo "DEBUG: After update, next-id content:" >&2
+    debug "After update, next-id content:"
     cat .git/refs/issues/next-id >&2
 }
 
