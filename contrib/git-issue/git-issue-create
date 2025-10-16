@@ -38,7 +38,11 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -m|--message)
             shift
-            message="$1"
+            if [ -n "$message" ] ; then
+                message=$(printf '%s\n%s' "$message" "$1")
+            else
+                message="$1"
+            fi
             ;;
         --title)
             shift
