@@ -85,7 +85,7 @@ fi
 get_next_issue_id() {
     if [ -f .git/refs/issues/next-id ]; then
         debug "Reading next-id file"
-        current_id=$(cat .git/refs/issues/next-id)
+        current_id=$(cut -d' ' -f2 < .git/refs/issues/next-id)
         debug "Current ID is '$current_id'"
         if ! echo "$current_id" | grep -q '^[0-9][0-9]*$'; then
             echo "Error: Invalid next-id format" >&2
@@ -105,7 +105,7 @@ get_next_issue_id() {
 # Update the next issue ID
 update_next_issue_id() {
     debug "Updating next-id to $1"
-    printf "%s" "$1" > .git/refs/issues/next-id
+    printf "ref: %s" "$1" > .git/refs/issues/next-id
     debug "After update, next-id content:"
     cat .git/refs/issues/next-id >&2
 }
