@@ -107,7 +107,7 @@ update_next_issue_id() {
     debug "Updating next-id to $1"
     printf "ref: %s" "$1" > .git/refs/issues/next-id
     debug "After update, next-id content:"
-    cat .git/refs/issues/next-id >&2
+    cat .git/refs/issues/next-id > /dev/null
 }
 
 # Format the issue ID with leading zeros
