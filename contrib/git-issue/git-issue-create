@@ -70,16 +70,17 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# Validate required fields
-if [ -z "$title" ] && [ -z "$message" ]; then
-    echo "Error: Either title or message must be specified" >&2
-    exit 1
-fi
-
 # If title is not provided, use the first line of the message
 if [ -z "$title" ] && [ -n "$message" ]; then
     title=$(echo "$message" | head -n 1)
 fi
+
+# Validate required fields
+if [ -z "$title" ]; then
+    echo "Error: Either title or message must be specified" >&2
+    exit 1
+fi
+
 
 # Get the next issue ID
 get_next_issue_id() {
